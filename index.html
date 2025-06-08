@@ -2,191 +2,306 @@
 <html lang="pl">
 <head>
   <meta charset="UTF-8" />
-  <title>Kalkulator Nadgodzin z Niedzielami i Świętami</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Generator komend baz danych - rozszerzona wersja</title>
   <style>
-    body { font-family: Arial; padding: 20px; background-color: #f8f9fa; }
-    h2 { margin-top: 30px; }
-    .entry { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; background: #fff; }
-    button { padding: 5px 10px; margin-top: 10px; }
-    #results { margin-top: 20px; background: #e9ecef; padding: 15px; border-radius: 5px; }
-    label { display: block; margin-top: 10px; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 900px;
+    }
+    label {
+      font-weight: bold;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 16px;
+      margin-bottom: 8px;
+      box-sizing: border-box;
+    }
+    select {
+      width: 100%;
+      padding: 8px;
+      font-size: 16px;
+      margin-bottom: 16px;
+      height: 180px;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    h2 {
+      margin-bottom: 0;
+    }
+    h3 {
+      margin-top: 30px;
+    }
   </style>
 </head>
 <body>
-  <h1>Kalkulator Nadgodzin (wiele dni) z Niedzielami i Świętami</h1>
 
-  <label for="wynagrodzenie">Miesięczne wynagrodzenie (PLN):</label>
-  <input type="number" id="wynagrodzenie" required min="0" step="0.01" />
+<h2>Narzędzie do generowania komend SQL</h2>
 
-  <label for="swieta">Daty świąt (RRRR-MM-DD, przecinek oddziela):</label>
-  <input type="text" id="swieta" placeholder="np. 2025-01-01,2025-12-25" />
+<label for="queryInput">Co chcesz zrobić?</label>
+<input type="text" id="queryInput" placeholder="Np. pobierz dane z tabeli, usuń rekord..." autocomplete="off" />
 
-  <div id="entries"></div>
+<label for="suggestions">Wybierz komendę</label>
+<select id="suggestions" size="10"></select>
 
-  <button onclick="addEntry()">➕ Dodaj dzień pracy</button>
-  <button onclick="calculate()">🧮 Oblicz</button>
-  <button onclick="exportExcel()" id="exportBtn" style="display:none;">📊 Eksportuj do Excel</button>
+<h3>Wybrana komenda wraz z przykładem:</h3>
+<pre id="commandOutput">Wybierz komendę z listy powyżej, aby zobaczyć przykład.</pre>
 
-  <div id="results"></div>
+<script>
+  const commands = [
+    // Operacje SELECT
+    {
+      name: "SELECT *",
+      description: "Pobierz wszystkie kolumny z tabeli",
+      example: `-- Pobranie wszystkich kolumn z tabeli pracownicy\nSELECT * FROM pracownicy;`
+    },
+    {
+      name: "SELECT z WHERE",
+      description: "Pobierz dane spełniające warunek",
+      example: `-- Pobranie pracowników ze stanowiskiem 'Analityk'\nSELECT * FROM pracownicy WHERE stanowisko = 'Analityk';`
+    },
+    {
+      name: "SELECT z JOIN",
+      description: "Pobierz dane łącząc tabele",
+      example: `-- Pobranie pracowników i nazw działów\nSELECT p.imie, p.nazwisko, d.nazwa_dzialu FROM pracownicy p JOIN dzialy d ON p.dzial_id = d.id;`
+    },
+    {
+      name: "SELECT DISTINCT",
+      description: "Pobierz unikalne wartości",
+      example: `-- Pobranie unikalnych stanowisk\nSELECT DISTINCT stanowisko FROM pracownicy;`
+    },
+    {
+      name: "SELECT z GROUP BY",
+      description: "Agreguj dane według kolumn",
+      example: `-- Liczba pracowników na stanowisku\nSELECT stanowisko, COUNT(*) AS liczba FROM pracownicy GROUP BY stanowisko;`
+    },
+    {
+      name: "SELECT z ORDER BY",
+      description: "Sortuj wyniki",
+      example: `-- Pracownicy posortowani alfabetycznie\nSELECT * FROM pracownicy ORDER BY nazwisko ASC;`
+    },
+    {
+      name: "SELECT z LIMIT",
+      description: "Ogranicz liczbę wyników",
+      example: `-- Pobierz 10 pierwszych rekordów\nSELECT * FROM pracownicy LIMIT 10;`
+    },
 
-  <!-- SheetJS (xlsx) CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    // Operacje INSERT
+    {
+      name: "INSERT",
+      description: "Dodaj nowy rekord do tabeli",
+      example: `-- Dodanie nowego pracownika\nINSERT INTO pracownicy (imie, nazwisko, stanowisko) VALUES ('Anna', 'Nowak', 'Programista');`
+    },
+    {
+      name: "INSERT z SELECT",
+      description: "Dodaj rekordy na podstawie wyników zapytania",
+      example: `-- Dodanie pracowników z innej tabeli\nINSERT INTO archiwum_pracownicy SELECT * FROM pracownicy WHERE data_zwolnienia IS NOT NULL;`
+    },
 
-  <script>
-    function addEntry() {
-      const container = document.createElement("div");
-      container.className = "entry";
-      container.innerHTML = `
-        <label>Data rozpoczęcia: <input type="date" class="start-date" required></label>
-        <label>Godzina rozpoczęcia: <input type="time" class="start-time" required></label>
-        <label>Data zakończenia: <input type="date" class="end-date" required></label>
-        <label>Godzina zakończenia: <input type="time" class="end-time" required></label>
-        <button onclick="this.parentElement.remove()">🗑️ Usuń</button>
-      `;
-      document.getElementById("entries").appendChild(container);
+    // Operacje UPDATE
+    {
+      name: "UPDATE",
+      description: "Aktualizuj dane w tabeli",
+      example: `-- Zmiana stanowiska pracownika o id=3\nUPDATE pracownicy SET stanowisko = 'Kierownik' WHERE id = 3;`
+    },
+
+    // Operacje DELETE
+    {
+      name: "DELETE",
+      description: "Usuń rekordy z tabeli",
+      example: `-- Usunięcie pracownika o id=10\nDELETE FROM pracownicy WHERE id = 10;`
+    },
+
+    // Operacje CREATE
+    {
+      name: "CREATE TABLE",
+      description: "Utwórz nową tabelę",
+      example: `-- Tworzenie tabeli pracownicy\nCREATE TABLE pracownicy (\n  id INT PRIMARY KEY,\n  imie VARCHAR(50),\n  nazwisko VARCHAR(50),\n  stanowisko VARCHAR(50),\n  data_zatrudnienia DATE\n);`
+    },
+    {
+      name: "CREATE INDEX",
+      description: "Utwórz indeks dla przyspieszenia wyszukiwania",
+      example: `-- Indeks na kolumnę nazwisko\nCREATE INDEX idx_nazwisko ON pracownicy (nazwisko);`
+    },
+    {
+      name: "CREATE VIEW",
+      description: "Utwórz widok (zapytanie zapisane jako tabela)",
+      example: `-- Widok aktywnych pracowników\nCREATE VIEW aktywni_pracownicy AS SELECT * FROM pracownicy WHERE status = 'aktywny';`
+    },
+
+    // Operacje ALTER
+    {
+      name: "ALTER TABLE - dodaj kolumnę",
+      description: "Dodaj nową kolumnę do tabeli",
+      example: `-- Dodanie kolumny email do pracowników\nALTER TABLE pracownicy ADD email VARCHAR(100);`
+    },
+    {
+      name: "ALTER TABLE - zmień typ kolumny",
+      description: "Zmień typ danych kolumny",
+      example: `-- Zmiana typu kolumny data_zatrudnienia\nALTER TABLE pracownicy ALTER COLUMN data_zatrudnienia TYPE TIMESTAMP;`
+    },
+    {
+      name: "ALTER TABLE - usuń kolumnę",
+      description: "Usuń kolumnę z tabeli",
+      example: `-- Usunięcie kolumny email\nALTER TABLE pracownicy DROP COLUMN email;`
+    },
+
+    // Operacje DROP
+    {
+      name: "DROP TABLE",
+      description: "Usuń tabelę z bazy",
+      example: `-- Usunięcie tabeli archiwum_pracownicy\nDROP TABLE archiwum_pracownicy;`
+    },
+    {
+      name: "DROP INDEX",
+      description: "Usuń indeks",
+      example: `-- Usunięcie indeksu idx_nazwisko\nDROP INDEX idx_nazwisko;`
+    },
+    {
+      name: "DROP VIEW",
+      description: "Usuń widok",
+      example: `-- Usunięcie widoku aktywni_pracownicy\nDROP VIEW aktywni_pracownicy;`
+    },
+
+    // Transakcje i kontrola
+    {
+      name: "BEGIN TRANSACTION",
+      description: "Rozpocznij transakcję",
+      example: `-- Rozpoczęcie transakcji\nBEGIN TRANSACTION;`
+    },
+    {
+      name: "COMMIT",
+      description: "Zatwierdź transakcję",
+      example: `-- Zatwierdzenie zmian\nCOMMIT;`
+    },
+    {
+      name: "ROLLBACK",
+      description: "Cofnij transakcję",
+      example: `-- Wycofanie zmian\nROLLBACK;`
+    },
+
+    // Uprawnienia
+    {
+      name: "GRANT",
+      description: "Nadaj uprawnienia użytkownikowi",
+      example: `-- Nadanie prawa SELECT na tabelę pracownicy\nGRANT SELECT ON pracownicy TO 'janek';`
+    },
+    {
+      name: "REVOKE",
+      description: "Cofnij uprawnienia",
+      example: `-- Cofnięcie prawa SELECT\nREVOKE SELECT ON pracownicy FROM 'janek';`
+    },
+
+    // Backup i przywracanie (przykładowe komendy specyficzne)
+    {
+      name: "BACKUP DATABASE",
+      description: "Backup bazy danych (syntax może się różnić w zależności od silnika)",
+      example: `-- Backup bazy danych\nBACKUP DATABASE moja_baza TO DISK = 'C:\\backup\\moja_baza.bak';`
+    },
+    {
+      name: "RESTORE DATABASE",
+      description: "Przywracanie bazy danych",
+      example: `-- Przywrócenie bazy danych\nRESTORE DATABASE moja_baza FROM DISK = 'C:\\backup\\moja_baza.bak';`
+    },
+
+    // Optymalizacja i analiza
+    {
+      name: "EXPLAIN",
+      description: "Analiza planu zapytania",
+      example: `-- Plan wykonania zapytania\nEXPLAIN SELECT * FROM pracownicy WHERE stanowisko = 'Analityk';`
+    },
+    {
+      name: "ANALYZE",
+      description: "Zbierz statystyki optymalizatora",
+      example: `-- Analiza tabeli pracownicy\nANALYZE pracownicy;`
+    },
+
+    // Specjalne operacje SQL
+    {
+      name: "TRUNCATE TABLE",
+      description: "Usuń wszystkie rekordy z tabeli szybciej niż DELETE",
+      example: `-- Szybkie usunięcie wszystkich danych\nTRUNCATE TABLE pracownicy;`
+    },
+    {
+      name: "CREATE PROCEDURE",
+      description: "Utwórz procedurę składowaną",
+      example: `-- Procedura dodająca pracownika\nCREATE PROCEDURE dodaj_pracownika (IN imie VARCHAR(50), IN nazwisko VARCHAR(50))\nBEGIN\n  INSERT INTO pracownicy (imie, nazwisko) VALUES (imie, nazwisko);\nEND;`
+    },
+    {
+      name: "EXECUTE PROCEDURE",
+      description: "Wywołaj procedurę składowaną",
+      example: `-- Wywołanie procedury\nCALL dodaj_pracownika('Maria', 'Kowalczyk');`
+    },
+  ];
+
+  const input = document.getElementById('queryInput');
+  const suggestions = document.getElementById('suggestions');
+  const output = document.getElementById('commandOutput');
+
+  function updateSuggestions() {
+    const text = input.value.toLowerCase().trim();
+    suggestions.innerHTML = '';
+
+    if(text.length === 0) {
+      output.textContent = 'Wybierz komendę z listy powyżej, aby zobaczyć przykład.';
+      return;
     }
 
-    let wynikiGlobalne = null;
+    const filtered = commands.filter(cmd =>
+      cmd.name.toLowerCase().includes(text) ||
+      cmd.description.toLowerCase().includes(text)
+    );
 
-    function isHoliday(date, holidays) {
-      // Sprawdza, czy data jest niedzielą lub świętem (lista)
-      if (date.getDay() === 0) return true; // niedziela
-      const yyyyMMdd = date.toISOString().slice(0, 10);
-      return holidays.includes(yyyyMMdd);
+    if(filtered.length === 0) {
+      suggestions.innerHTML = '<option disabled>Brak dopasowań</option>';
+      output.textContent = 'Brak komendy pasującej do wpisanego zapytania.';
+      return;
     }
 
-    function calculate() {
-      const wynagrodzenie = parseFloat(document.getElementById("wynagrodzenie").value);
-      if (isNaN(wynagrodzenie) || wynagrodzenie <= 0) {
-        alert("Wprowadź poprawne miesięczne wynagrodzenie.");
-        return;
-      }
+    filtered.forEach((cmd, i) => {
+      const option = document.createElement('option');
+      option.value = i;
+      option.textContent = `${cmd.name} - ${cmd.description}`;
+      suggestions.appendChild(option);
+    });
 
-      // Pobierz święta, podziel i usuń spacje
-      const swietaInput = document.getElementById("swieta").value.trim();
-      const holidays = swietaInput ? swietaInput.split(",").map(s => s.trim()) : [];
+    suggestions.selectedIndex = 0;
+    showExample(filtered[0]);
+  }
 
-      const entries = document.querySelectorAll(".entry");
-      let totalDzien = 0, totalNoc = 0, totalSwieta = 0;
-      let szczegoly = [];
+  function showExample(cmd) {
+    output.textContent = cmd.example;
+  }
 
-      for (const entry of entries) {
-        const startDate = entry.querySelector(".start-date").value;
-        const startTime = entry.querySelector(".start-time").value;
-        const endDate = entry.querySelector(".end-date").value;
-        const endTime = entry.querySelector(".end-time").value;
+  suggestions.addEventListener('change', () => {
+    const idx = suggestions.selectedIndex;
+    if(idx < 0) return;
 
-        if (!startDate || !startTime || !endDate || !endTime) continue;
+    const text = input.value.toLowerCase().trim();
+    const filtered = commands.filter(cmd =>
+      cmd.name.toLowerCase().includes(text) ||
+      cmd.description.toLowerCase().includes(text)
+    );
 
-        const start = new Date(`${startDate}T${startTime}`);
-        const end = new Date(`${endDate}T${endTime}`);
-
-        if (end <= start) {
-          alert("Data zakończenia musi być późniejsza niż data rozpoczęcia.");
-          return;
-        }
-
-        let czas = new Date(start);
-        let nadgodzDzien = 0, nadgodzNoc = 0, nadgodzSwieto = 0;
-
-        while (czas < end) {
-          const nextHour = new Date(czas.getTime() + 60 * 60 * 1000);
-          const limit = nextHour > end ? end : nextHour;
-
-          const aktualnaGodzina = czas.getHours();
-          const czyNoc = aktualnaGodzina >= 22 || aktualnaGodzina < 6;
-          const czySwieto = isHoliday(czas, holidays);
-
-          const czasTrwania = (limit - czas) / (1000 * 60 * 60); // w godzinach
-
-          if (czySwieto) {
-            nadgodzSwieto += czasTrwania;
-          } else if (czyNoc) {
-            nadgodzNoc += czasTrwania;
-          } else {
-            nadgodzDzien += czasTrwania;
-          }
-
-          czas = limit;
-        }
-
-        totalDzien += nadgodzDzien;
-        totalNoc += nadgodzNoc;
-        totalSwieta += nadgodzSwieto;
-
-        szczegoly.push({
-          start: start.toLocaleString(),
-          end: end.toLocaleString(),
-          dzienne: nadgodzDzien.toFixed(2),
-          nocne: nadgodzNoc.toFixed(2),
-          swieta: nadgodzSwieto.toFixed(2)
-        });
-      }
-
-      const stawka = wynagrodzenie / 168;
-      const wynDzien = totalDzien * stawka * 1.5;
-      const wynNoc = totalNoc * stawka * 2;
-      const wynSwieta = totalSwieta * stawka * 2;
-      const razem = wynDzien + wynNoc + wynSwieta;
-
-      document.getElementById("results").innerHTML = `
-        <h2>Wyniki</h2>
-        <p>🕒 Nadgodziny dzienne: ${totalDzien.toFixed(2)} godz. – ${wynDzien.toFixed(2)} zł</p>
-        <p>🌙 Nadgodziny nocne: ${totalNoc.toFixed(2)} godz. – ${wynNoc.toFixed(2)} zł</p>
-        <p>🎉 Nadgodziny w niedziele i święta: ${totalSwieta.toFixed(2)} godz. – ${wynSwieta.toFixed(2)} zł</p>
-        <p><strong>💰 Razem: ${razem.toFixed(2)} zł</strong></p>
-      `;
-
-      wynikiGlobalne = {
-        wynagrodzenie,
-        stawka: stawka.toFixed(2),
-        totalDzien: totalDzien.toFixed(2),
-        totalNoc: totalNoc.toFixed(2),
-        totalSwieta: totalSwieta.toFixed(2),
-        wynDzien: wynDzien.toFixed(2),
-        wynNoc: wynNoc.toFixed(2),
-        wynSwieta: wynSwieta.toFixed(2),
-        razem: razem.toFixed(2),
-        szczegoly
-      };
-
-      document.getElementById("exportBtn").style.display = "inline-block";
+    if(filtered.length > 0) {
+      showExample(filtered[idx]);
     }
+  });
 
-    function exportExcel() {
-      if (!wynikiGlobalne) {
-        alert("Najpierw oblicz wyniki.");
-        return;
-      }
+  input.addEventListener('input', updateSuggestions);
 
-      const data = [
-        ["Miesięczne wynagrodzenie (PLN)", wynikiGlobalne.wynagrodzenie],
-        ["Stawka godzinowa (PLN)", wynikiGlobalne.stawka],
-        [],
-        ["Suma nadgodzin dziennych (godz.)", wynikiGlobalne.totalDzien],
-        ["Suma nadgodzin nocnych (godz.)", wynikiGlobalne.totalNoc],
-        ["Suma nadgodzin w niedziele i święta (godz.)", wynikiGlobalne.totalSwieta],
-        ["Wynagrodzenie za nadgodziny dzienne (PLN)", wynikiGlobalne.wynDzien],
-        ["Wynagrodzenie za nadgodziny nocne (PLN)", wynikiGlobalne.wynNoc],
-        ["Wynagrodzenie za nadgodziny w niedziele i święta (PLN)", wynikiGlobalne.wynSwieta],
-        ["Łączne wynagrodzenie za nadgodziny (PLN)", wynikiGlobalne.razem],
-        [],
-        ["Szczegóły dziennej pracy:"],
-        ["Data rozpoczęcia", "Data zakończenia", "Nadgodziny dzienne (godz.)", "Nadgodziny nocne (godz.)", "Nadgodziny niedziele/święta (godz.)"]
-      ];
+  updateSuggestions();
+</script>
 
-      wynikiGlobalne.szczegoly.forEach(dzien => {
-        data.push([dzien.start, dzien.end, dzien.dzienne, dzien.nocne, dzien.swieta]);
-      });
-
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Nadgodziny");
-
-      XLSX.writeFile(wb, "wyniki_nadgodziny.xlsx");
-    }
-
-    addEntry();
-  </script>
 </body>
 </html>
