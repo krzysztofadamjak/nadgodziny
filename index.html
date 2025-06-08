@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nadgodziny z uwzględnieniem świąt</title>
+  <title>Nadgodziny z uwzględnieniem świąt i niedziel</title>
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; padding: 10px; }
@@ -12,15 +12,14 @@
     table { border-collapse: collapse; width: 100%; margin-top: 20px; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
     th { background-color: #eee; }
+    .dzien-container { border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
   </style>
 </head>
 <body>
   <h1>Obliczanie wynagrodzenia za nadgodziny</h1>
   <p>Wprowadź dni i godziny pracy oraz miesięczne wynagrodzenie netto.</p>
 
-  <div id="inputContainer">
-    <!-- Tu będą dynamicznie dodawane pola na dni pracy -->
-  </div>
+  <div id="inputContainer"></div>
 
   <button onclick="dodajDzien()">Dodaj dzień pracy</button>
   <br/><br/>
@@ -54,10 +53,8 @@
     const idx = container.children.length + 1;
 
     const div = document.createElement('div');
+    div.className = "dzien-container";
     div.id = `dzien${idx}`;
-    div.style.border = "1px solid #ccc";
-    div.style.padding = "10px";
-    div.style.marginTop = "10px";
 
     div.innerHTML = `
       <strong>Dzień pracy #${idx}</strong><br/>
@@ -98,10 +95,10 @@
 
       // Parsowanie dat i czasów do Date
       const start = new Date(`${dataVal}T${startVal}:00`);
-      const stop = new Date(`${dataVal}T${stopVal}:00`);
+      let stop = new Date(`${dataVal}T${stopVal}:00`);
+      // jeśli godzina stop jest mniejsza lub równa start, traktuj jako przejście na następny dzień
       if(stop <= start){
-        alert(`Data zakończenia musi być późniejsza niż rozpoczęcia dla dnia #${i}`);
-        return;
+        stop.setDate(stop.getDate() + 1);
       }
 
       dni.push({ start, stop });
@@ -155,10 +152,71 @@
     const wynDzien = Math.round(nadgodzDzien * stawka * 1.5 * 100) / 100;
     const wynNoc = Math.round(nadgodzNoc * stawka * 2.0 * 100) / 100;
     const wynSwieto = Math.round(nadgodzSwieto * stawka * 2.0 * 100) / 100;
-    const wynLaczne = wynDzien + wynNoc + wynSwieto;
+    const wynLaczne = Math.round((wynDzien + wynNoc + wynSwieto) * 100) / 100;
 
     const wynikHTML = `
       <h2>Wyniki</h2>
       <table>
         <tr><th>Rodzaj nadgodzin</th><th>Liczba godzin</th><th>Wynagrodzenie (PLN)</th></tr>
-        <
+        <tr><td>Nadgodziny dzienne (1.5x)</td><td>${nadgodzDzien.toFixed(2)}</td><td>${wynDzien.toFixed(2)}</td></tr>
+        <tr><td>Nadgodziny nocne (2x)</td><td>${nadgodzNoc.toFixed(2)}</td><td>${wynNoc.toFixed(2)}</td></tr>
+        <tr><td>Nadgodziny w niedziele i święta (2x)</td><td>${nadgodzSwieto.toFixed(2)}</td><td>${wynSwieto.toFixed(2)}</td></tr>
+        <tr><th>Razem</th><th>${(nadgodzDzien + nadgodzNoc + nadgodzSwieto).toFixed(2)}</th><th>${wynLaczne.toFixed(2)}</th></tr>
+      </table>
+    `;
+    document.getElementById('wyniki').innerHTML = wynikHTML;
+
+    // zapisz dane do eksportu
+    window.ostatnieWyniki = {
+      dni: dni,
+      wynagrodzenieMiesieczne: wynM,
+      stawka,
+      nadgodzDzien,
+      nadgodzNoc,
+      nadgodzSwieto,
+      wynDzien,
+      wynNoc,
+      wynSwieto,
+      wynLaczne
+    };
+  }
+
+  function eksportujDoExcel() {
+    if(!window.ostatnieWyniki){
+      alert("Najpierw oblicz wynagrodzenie!");
+      return;
+    }
+    const w = window.ostatnieWyniki;
+
+    const wsData = [
+      ["Rodzaj nadgodzin", "Liczba godzin", "Wynagrodzenie (PLN)"],
+      ["Nadgodziny dzienne (1.5x)", w.nadgodzDzien.toFixed(2), w.wynDzien.toFixed(2)],
+      ["Nadgodziny nocne (2x)", w.nadgodzNoc.toFixed(2), w.wynNoc.toFixed(2)],
+      ["Nadgodziny w niedziele i święta (2x)", w.nadgodzSwieto.toFixed(2), w.wynSwieto.toFixed(2)],
+      ["Razem", (w.nadgodzDzien + w.nadgodzNoc + w.nadgodzSwieto).toFixed(2), w.wynLaczne.toFixed(2)],
+      [],
+      ["Miesięczne wynagrodzenie netto (PLN)", w.wynagrodzenieMiesieczne.toFixed(2)],
+      ["Stawka godzinowa (PLN)", w.stawka.toFixed(2)],
+      [],
+      ["Dni pracy (data, start, stop)"]
+    ];
+
+    for(let i = 0; i < w.dni.length; i++) {
+      const d = w.dni[i];
+      wsData.push([
+        `Dzień #${i+1}`,
+        d.start.toISOString().slice(0,10),
+        d.start.toTimeString().slice(0,5),
+        d.stop.toTimeString().slice(0,5)
+      ]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Wyniki");
+
+    XLSX.writeFile(wb, "wynagrodzenie_nadgodziny.xlsx");
+  }
+</script>
+</body>
+</html>
