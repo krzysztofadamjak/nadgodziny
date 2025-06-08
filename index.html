@@ -3,305 +3,162 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Generator komend baz danych - rozszerzona wersja</title>
+  <title>Nadgodziny z uwzględnieniem świąt</title>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      max-width: 900px;
-    }
-    label {
-      font-weight: bold;
-    }
-    input[type="text"] {
-      width: 100%;
-      padding: 8px;
-      font-size: 16px;
-      margin-bottom: 8px;
-      box-sizing: border-box;
-    }
-    select {
-      width: 100%;
-      padding: 8px;
-      font-size: 16px;
-      margin-bottom: 16px;
-      height: 180px;
-    }
-    pre {
-      background: #f4f4f4;
-      padding: 12px;
-      border-radius: 4px;
-      font-size: 14px;
-      white-space: pre-wrap;
-      max-height: 300px;
-      overflow-y: auto;
-    }
-    h2 {
-      margin-bottom: 0;
-    }
-    h3 {
-      margin-top: 30px;
-    }
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; padding: 10px; }
+    label { display: block; margin-top: 10px; }
+    input, button { margin-top: 5px; padding: 5px; font-size: 1em; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #eee; }
   </style>
 </head>
 <body>
+  <h1>Obliczanie wynagrodzenia za nadgodziny</h1>
+  <p>Wprowadź dni i godziny pracy oraz miesięczne wynagrodzenie netto.</p>
 
-<h2>Narzędzie do generowania komend SQL</h2>
+  <div id="inputContainer">
+    <!-- Tu będą dynamicznie dodawane pola na dni pracy -->
+  </div>
 
-<label for="queryInput">Co chcesz zrobić?</label>
-<input type="text" id="queryInput" placeholder="Np. pobierz dane z tabeli, usuń rekord..." autocomplete="off" />
+  <button onclick="dodajDzien()">Dodaj dzień pracy</button>
+  <br/><br/>
+  <label>
+    Miesięczne wynagrodzenie netto (PLN):
+    <input type="number" id="wynagrodzenieMiesieczne" min="0" step="0.01" value="6000" />
+  </label>
 
-<label for="suggestions">Wybierz komendę</label>
-<select id="suggestions" size="10"></select>
+  <button onclick="oblicz()">Oblicz wynagrodzenie</button>
+  <button onclick="eksportujDoExcel()">Eksportuj wyniki do Excela</button>
 
-<h3>Wybrana komenda wraz z przykładem:</h3>
-<pre id="commandOutput">Wybierz komendę z listy powyżej, aby zobaczyć przykład.</pre>
+  <div id="wyniki"></div>
 
 <script>
-  const commands = [
-    // Operacje SELECT
-    {
-      name: "SELECT *",
-      description: "Pobierz wszystkie kolumny z tabeli",
-      example: `-- Pobranie wszystkich kolumn z tabeli pracownicy\nSELECT * FROM pracownicy;`
-    },
-    {
-      name: "SELECT z WHERE",
-      description: "Pobierz dane spełniające warunek",
-      example: `-- Pobranie pracowników ze stanowiskiem 'Analityk'\nSELECT * FROM pracownicy WHERE stanowisko = 'Analityk';`
-    },
-    {
-      name: "SELECT z JOIN",
-      description: "Pobierz dane łącząc tabele",
-      example: `-- Pobranie pracowników i nazw działów\nSELECT p.imie, p.nazwisko, d.nazwa_dzialu FROM pracownicy p JOIN dzialy d ON p.dzial_id = d.id;`
-    },
-    {
-      name: "SELECT DISTINCT",
-      description: "Pobierz unikalne wartości",
-      example: `-- Pobranie unikalnych stanowisk\nSELECT DISTINCT stanowisko FROM pracownicy;`
-    },
-    {
-      name: "SELECT z GROUP BY",
-      description: "Agreguj dane według kolumn",
-      example: `-- Liczba pracowników na stanowisku\nSELECT stanowisko, COUNT(*) AS liczba FROM pracownicy GROUP BY stanowisko;`
-    },
-    {
-      name: "SELECT z ORDER BY",
-      description: "Sortuj wyniki",
-      example: `-- Pracownicy posortowani alfabetycznie\nSELECT * FROM pracownicy ORDER BY nazwisko ASC;`
-    },
-    {
-      name: "SELECT z LIMIT",
-      description: "Ogranicz liczbę wyników",
-      example: `-- Pobierz 10 pierwszych rekordów\nSELECT * FROM pracownicy LIMIT 10;`
-    },
-
-    // Operacje INSERT
-    {
-      name: "INSERT",
-      description: "Dodaj nowy rekord do tabeli",
-      example: `-- Dodanie nowego pracownika\nINSERT INTO pracownicy (imie, nazwisko, stanowisko) VALUES ('Anna', 'Nowak', 'Programista');`
-    },
-    {
-      name: "INSERT z SELECT",
-      description: "Dodaj rekordy na podstawie wyników zapytania",
-      example: `-- Dodanie pracowników z innej tabeli\nINSERT INTO archiwum_pracownicy SELECT * FROM pracownicy WHERE data_zwolnienia IS NOT NULL;`
-    },
-
-    // Operacje UPDATE
-    {
-      name: "UPDATE",
-      description: "Aktualizuj dane w tabeli",
-      example: `-- Zmiana stanowiska pracownika o id=3\nUPDATE pracownicy SET stanowisko = 'Kierownik' WHERE id = 3;`
-    },
-
-    // Operacje DELETE
-    {
-      name: "DELETE",
-      description: "Usuń rekordy z tabeli",
-      example: `-- Usunięcie pracownika o id=10\nDELETE FROM pracownicy WHERE id = 10;`
-    },
-
-    // Operacje CREATE
-    {
-      name: "CREATE TABLE",
-      description: "Utwórz nową tabelę",
-      example: `-- Tworzenie tabeli pracownicy\nCREATE TABLE pracownicy (\n  id INT PRIMARY KEY,\n  imie VARCHAR(50),\n  nazwisko VARCHAR(50),\n  stanowisko VARCHAR(50),\n  data_zatrudnienia DATE\n);`
-    },
-    {
-      name: "CREATE INDEX",
-      description: "Utwórz indeks dla przyspieszenia wyszukiwania",
-      example: `-- Indeks na kolumnę nazwisko\nCREATE INDEX idx_nazwisko ON pracownicy (nazwisko);`
-    },
-    {
-      name: "CREATE VIEW",
-      description: "Utwórz widok (zapytanie zapisane jako tabela)",
-      example: `-- Widok aktywnych pracowników\nCREATE VIEW aktywni_pracownicy AS SELECT * FROM pracownicy WHERE status = 'aktywny';`
-    },
-
-    // Operacje ALTER
-    {
-      name: "ALTER TABLE - dodaj kolumnę",
-      description: "Dodaj nową kolumnę do tabeli",
-      example: `-- Dodanie kolumny email do pracowników\nALTER TABLE pracownicy ADD email VARCHAR(100);`
-    },
-    {
-      name: "ALTER TABLE - zmień typ kolumny",
-      description: "Zmień typ danych kolumny",
-      example: `-- Zmiana typu kolumny data_zatrudnienia\nALTER TABLE pracownicy ALTER COLUMN data_zatrudnienia TYPE TIMESTAMP;`
-    },
-    {
-      name: "ALTER TABLE - usuń kolumnę",
-      description: "Usuń kolumnę z tabeli",
-      example: `-- Usunięcie kolumny email\nALTER TABLE pracownicy DROP COLUMN email;`
-    },
-
-    // Operacje DROP
-    {
-      name: "DROP TABLE",
-      description: "Usuń tabelę z bazy",
-      example: `-- Usunięcie tabeli archiwum_pracownicy\nDROP TABLE archiwum_pracownicy;`
-    },
-    {
-      name: "DROP INDEX",
-      description: "Usuń indeks",
-      example: `-- Usunięcie indeksu idx_nazwisko\nDROP INDEX idx_nazwisko;`
-    },
-    {
-      name: "DROP VIEW",
-      description: "Usuń widok",
-      example: `-- Usunięcie widoku aktywni_pracownicy\nDROP VIEW aktywni_pracownicy;`
-    },
-
-    // Transakcje i kontrola
-    {
-      name: "BEGIN TRANSACTION",
-      description: "Rozpocznij transakcję",
-      example: `-- Rozpoczęcie transakcji\nBEGIN TRANSACTION;`
-    },
-    {
-      name: "COMMIT",
-      description: "Zatwierdź transakcję",
-      example: `-- Zatwierdzenie zmian\nCOMMIT;`
-    },
-    {
-      name: "ROLLBACK",
-      description: "Cofnij transakcję",
-      example: `-- Wycofanie zmian\nROLLBACK;`
-    },
-
-    // Uprawnienia
-    {
-      name: "GRANT",
-      description: "Nadaj uprawnienia użytkownikowi",
-      example: `-- Nadanie prawa SELECT na tabelę pracownicy\nGRANT SELECT ON pracownicy TO 'janek';`
-    },
-    {
-      name: "REVOKE",
-      description: "Cofnij uprawnienia",
-      example: `-- Cofnięcie prawa SELECT\nREVOKE SELECT ON pracownicy FROM 'janek';`
-    },
-
-    // Backup i przywracanie (przykładowe komendy specyficzne)
-    {
-      name: "BACKUP DATABASE",
-      description: "Backup bazy danych (syntax może się różnić w zależności od silnika)",
-      example: `-- Backup bazy danych\nBACKUP DATABASE moja_baza TO DISK = 'C:\\backup\\moja_baza.bak';`
-    },
-    {
-      name: "RESTORE DATABASE",
-      description: "Przywracanie bazy danych",
-      example: `-- Przywrócenie bazy danych\nRESTORE DATABASE moja_baza FROM DISK = 'C:\\backup\\moja_baza.bak';`
-    },
-
-    // Optymalizacja i analiza
-    {
-      name: "EXPLAIN",
-      description: "Analiza planu zapytania",
-      example: `-- Plan wykonania zapytania\nEXPLAIN SELECT * FROM pracownicy WHERE stanowisko = 'Analityk';`
-    },
-    {
-      name: "ANALYZE",
-      description: "Zbierz statystyki optymalizatora",
-      example: `-- Analiza tabeli pracownicy\nANALYZE pracownicy;`
-    },
-
-    // Specjalne operacje SQL
-    {
-      name: "TRUNCATE TABLE",
-      description: "Usuń wszystkie rekordy z tabeli szybciej niż DELETE",
-      example: `-- Szybkie usunięcie wszystkich danych\nTRUNCATE TABLE pracownicy;`
-    },
-    {
-      name: "CREATE PROCEDURE",
-      description: "Utwórz procedurę składowaną",
-      example: `-- Procedura dodająca pracownika\nCREATE PROCEDURE dodaj_pracownika (IN imie VARCHAR(50), IN nazwisko VARCHAR(50))\nBEGIN\n  INSERT INTO pracownicy (imie, nazwisko) VALUES (imie, nazwisko);\nEND;`
-    },
-    {
-      name: "EXECUTE PROCEDURE",
-      description: "Wywołaj procedurę składowaną",
-      example: `-- Wywołanie procedury\nCALL dodaj_pracownika('Maria', 'Kowalczyk');`
-    },
+  // Święta w Polsce na lata 2025-2029 (stałe i ruchome)
+  const swieta = [
+    "2025-01-01","2025-01-06","2025-04-20","2025-04-21","2025-05-01","2025-05-03","2025-06-08","2025-08-15","2025-11-01","2025-11-11","2025-12-25","2025-12-26",
+    "2026-01-01","2026-01-06","2026-04-05","2026-04-06","2026-05-01","2026-05-03","2026-05-28","2026-08-15","2026-11-01","2026-11-11","2026-12-25","2026-12-26",
+    "2027-01-01","2027-01-06","2027-03-28","2027-03-29","2027-05-01","2027-05-03","2027-06-17","2027-08-15","2027-11-01","2027-11-11","2027-12-25","2027-12-26",
+    "2028-01-01","2028-01-06","2028-04-16","2028-04-17","2028-05-01","2028-05-03","2028-06-08","2028-08-15","2028-11-01","2028-11-11","2028-12-25","2028-12-26",
+    "2029-01-01","2029-01-06","2029-04-01","2029-04-02","2029-05-01","2029-05-03","2029-05-31","2029-08-15","2029-11-01","2029-11-11","2029-12-25","2029-12-26"
   ];
 
-  const input = document.getElementById('queryInput');
-  const suggestions = document.getElementById('suggestions');
-  const output = document.getElementById('commandOutput');
+  // Dodaj pierwszy dzień na start
+  window.onload = () => {
+    dodajDzien();
+  };
 
-  function updateSuggestions() {
-    const text = input.value.toLowerCase().trim();
-    suggestions.innerHTML = '';
+  function dodajDzien() {
+    const container = document.getElementById('inputContainer');
+    const idx = container.children.length + 1;
 
-    if(text.length === 0) {
-      output.textContent = 'Wybierz komendę z listy powyżej, aby zobaczyć przykład.';
+    const div = document.createElement('div');
+    div.id = `dzien${idx}`;
+    div.style.border = "1px solid #ccc";
+    div.style.padding = "10px";
+    div.style.marginTop = "10px";
+
+    div.innerHTML = `
+      <strong>Dzień pracy #${idx}</strong><br/>
+      <label>Data (RRRR-MM-DD): <input type="date" id="data${idx}" required></label>
+      <label>Godzina rozpoczęcia (GG:MM, 24h): <input type="time" id="start${idx}" required></label>
+      <label>Godzina zakończenia (GG:MM, 24h): <input type="time" id="stop${idx}" required></label>
+      <button onclick="usunDzien(${idx})" style="margin-top:5px;">Usuń dzień</button>
+    `;
+    container.appendChild(div);
+  }
+
+  function usunDzien(idx) {
+    const div = document.getElementById(`dzien${idx}`);
+    if(div) div.remove();
+  }
+
+  function oblicz() {
+    const wynM = parseFloat(document.getElementById('wynagrodzenieMiesieczne').value);
+    if (isNaN(wynM) || wynM <= 0) {
+      alert("Podaj poprawne miesięczne wynagrodzenie!");
       return;
     }
 
-    const filtered = commands.filter(cmd =>
-      cmd.name.toLowerCase().includes(text) ||
-      cmd.description.toLowerCase().includes(text)
-    );
+    const container = document.getElementById('inputContainer');
+    const dni = [];
+    for(let i = 1; i <= container.children.length; i++) {
+      const div = document.getElementById(`dzien${i}`);
+      if (!div) continue; // pomijamy usunięte dni
 
-    if(filtered.length === 0) {
-      suggestions.innerHTML = '<option disabled>Brak dopasowań</option>';
-      output.textContent = 'Brak komendy pasującej do wpisanego zapytania.';
+      const dataVal = document.getElementById(`data${i}`).value;
+      const startVal = document.getElementById(`start${i}`).value;
+      const stopVal = document.getElementById(`stop${i}`).value;
+
+      if (!dataVal || !startVal || !stopVal) {
+        alert(`Uzupełnij wszystkie pola dla dnia #${i}`);
+        return;
+      }
+
+      // Parsowanie dat i czasów do Date
+      const start = new Date(`${dataVal}T${startVal}:00`);
+      const stop = new Date(`${dataVal}T${stopVal}:00`);
+      if(stop <= start){
+        alert(`Data zakończenia musi być późniejsza niż rozpoczęcia dla dnia #${i}`);
+        return;
+      }
+
+      dni.push({ start, stop });
+    }
+
+    if(dni.length === 0){
+      alert("Dodaj przynajmniej jeden dzień pracy!");
       return;
     }
 
-    filtered.forEach((cmd, i) => {
-      const option = document.createElement('option');
-      option.value = i;
-      option.textContent = `${cmd.name} - ${cmd.description}`;
-      suggestions.appendChild(option);
-    });
+    // Stawka godzinowa
+    const stawka = wynM / 168;
 
-    suggestions.selectedIndex = 0;
-    showExample(filtered[0]);
-  }
+    // Wyniki sumaryczne
+    let nadgodzDzien = 0;
+    let nadgodzNoc = 0;
+    let nadgodzSwieto = 0;
 
-  function showExample(cmd) {
-    output.textContent = cmd.example;
-  }
+    for(const dzien of dni){
+      let czas = new Date(dzien.start);
 
-  suggestions.addEventListener('change', () => {
-    const idx = suggestions.selectedIndex;
-    if(idx < 0) return;
+      while(czas < dzien.stop){
+        let next = new Date(czas);
+        next.setHours(next.getHours() + 1);
+        if(next > dzien.stop) next = new Date(dzien.stop);
 
-    const text = input.value.toLowerCase().trim();
-    const filtered = commands.filter(cmd =>
-      cmd.name.toLowerCase().includes(text) ||
-      cmd.description.toLowerCase().includes(text)
-    );
+        const godz = czas.getHours();
+        const dataISO = czas.toISOString().slice(0,10);
 
-    if(filtered.length > 0) {
-      showExample(filtered[idx]);
+        // Sprawdzenie czy niedziela
+        const dzienTyg = czas.getDay(); // 0 = niedziela
+        const czyNiedziela = dzienTyg === 0;
+
+        // Sprawdzenie czy święto
+        const czySwieto = swieta.includes(dataISO);
+
+        const czasTrwania = (next - czas) / (1000*60*60); // w godzinach
+
+        if(czyNiedziela || czySwieto){
+          nadgodzSwieto += czasTrwania;
+        } else if(godz >= 22 || godz < 6){
+          nadgodzNoc += czasTrwania;
+        } else {
+          nadgodzDzien += czasTrwania;
+        }
+
+        czas = next;
+      }
     }
-  });
 
-  input.addEventListener('input', updateSuggestions);
+    const wynDzien = Math.round(nadgodzDzien * stawka * 1.5 * 100) / 100;
+    const wynNoc = Math.round(nadgodzNoc * stawka * 2.0 * 100) / 100;
+    const wynSwieto = Math.round(nadgodzSwieto * stawka * 2.0 * 100) / 100;
+    const wynLaczne = wynDzien + wynNoc + wynSwieto;
 
-  updateSuggestions();
-</script>
-
-</body>
-</html>
+    const wynikHTML = `
+      <h2>Wyniki</h2>
+      <table>
+        <tr><th>Rodzaj nadgodzin</th><th>Liczba godzin</th><th>Wynagrodzenie (PLN)</th></tr>
+        <
