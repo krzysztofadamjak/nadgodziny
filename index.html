@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <title>Kalkulator Nadgodzin z Niedzielami i Świętami</title>
+  <style>
+    body { font-family: Arial; padding: 20px; background-color: #f8f9fa; }
+    h2 { margin-top: 30px; }
+    .entry { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; background: #fff; }
+    button { padding: 5px 10px; margin-top: 10px; }
+    #results { margin-top: 20px; background: #e9ecef; padding: 15px; border-radius: 5px; }
+    label { display: block; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Kalkulator Nadgodzin (wiele dni) z Niedzielami i Świętami</h1>
+
+  <label for="wynagrodzenie">Miesięczne wynagrodzenie (PLN):</label>
+  <input type="number" id="wynagrodzenie" required min="0" step="0.01" />
+
+  <label for="swieta">Daty świąt (RRRR-MM-DD, przecinek oddziela):</label>
+  <input type="text" id="swieta" placeholder="np. 2025-01-01,2025-12-25" />
+
+  <div id="entries"></div>
+
+  <button onclick="addEntry()">➕ Dodaj dzień pracy</button>
+  <button onclick="calculate()">🧮 Oblicz</button>
+  <button onclick="exportExcel()" id="exportBtn" style="display:none;">📊 Eksportuj do Excel</button>
+
+  <div id="results"></div>
+
+  <!-- SheetJS (xlsx) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script>
+    function addEntry() {
+      const container = document.createElement("div");
+      container.className = "entry";
+      container.innerHTML = `
+        <label>Data rozpoczęcia: <input type="date" class="start-date" required></label>
+        <label>Godzina rozpoczęcia: <input type="time" class="start-time" required></label>
+        <label>Data zakończenia: <input type="date" class="end-date" required></label>
+        <label>Godzina zakończenia: <input type="time" class="end-time" required></label>
+        <button onclick="this.parentElement.remove()">🗑️ Usuń</button>
+      `;
+      document.getElementById("entries").appendChild(container);
+    }
+
+    let wynikiGlobalne = null;
+
+    function isHoliday(date, holidays) {
+      // Sprawdza, czy data jest niedzielą lub świętem (lista)
+      if (date.getDay() === 0) return true; // niedziela
+      const yyyyMMdd = date.toISOString().slice(0, 10);
+      return holidays.includes(yyyyMMdd);
+    }
+
+    function calculate() {
+      const wynagrodzenie = parseFloat(document.getElementById("wynagrodzenie").value);
+      if (isNaN(wynagrodzenie) || wynagrodzenie <= 0) {
+        alert("Wprowadź poprawne miesięczne wynagrodzenie.");
+        return;
+      }
+
+      // Pobierz święta, podziel i usuń spacje
+      const swietaInput = document.getElementById("swieta").value.trim();
+      const holidays = swietaInput ? swietaInput.split(",").map(s => s.trim()) : [];
+
+      const entries = document.querySelectorAll(".entry");
+      let totalDzien = 0, totalNoc = 0, totalSwieta = 0;
+      let szczegoly = [];
+
+      for (const entry of entries) {
+        const startDate = entry.querySelector(".start-date").value;
+        const startTime = entry.querySelector(".start-time").value;
+        const endDate = entry.querySelector(".end-date").value;
+        const endTime = entry.querySelector(".end-time").value;
+
+        if (!startDate || !startTime || !endDate || !endTime) continue;
+
+        const start = new Date(`${startDate}T${startTime}`);
+        const end = new Date(`${endDate}T${endTime}`);
+
+        if (end <= start) {
+          alert("Data zakończenia musi być późniejsza niż data rozpoczęcia.");
+          return;
+        }
+
+        let czas = new Date(start);
+        let nadgodzDzien = 0, nadgodzNoc = 0, nadgodzSwieto = 0;
+
+        while (czas < end) {
+          const nextHour = new Date(czas.getTime() + 60 * 60 * 1000);
+          const limit = nextHour > end ? end : nextHour;
+
+          const aktualnaGodzina = czas.getHours();
+          const czyNoc = aktualnaGodzina >= 22 || aktualnaGodzina < 6;
+          const czySwieto = isHoliday(czas, holidays);
+
+          const czasTrwania = (limit - czas) / (1000 * 60 * 60); // w godzinach
+
+          if (czySwieto) {
+            nadgodzSwieto += czasTrwania;
+          } else if (czyNoc) {
+            nadgodzNoc += czasTrwania;
+          } else {
+            nadgodzDzien += czasTrwania;
+          }
+
+          czas = limit;
+        }
+
+        totalDzien += nadgodzDzien;
+        totalNoc += nadgodzNoc;
+        totalSwieta += nadgodzSwieto;
+
+        szczegoly.push({
+          start: start.toLocaleString(),
+          end: end.toLocaleString(),
+          dzienne: nadgodzDzien.toFixed(2),
+          nocne: nadgodzNoc.toFixed(2),
+          swieta: nadgodzSwieto.toFixed(2)
+        });
+      }
+
+      const stawka = wynagrodzenie / 168;
+      const wynDzien = totalDzien * stawka * 1.5;
+      const wynNoc = totalNoc * stawka * 2;
+      const wynSwieta = totalSwieta * stawka * 2;
+      const razem = wynDzien + wynNoc + wynSwieta;
+
+      document.getElementById("results").innerHTML = `
+        <h2>Wyniki</h2>
+        <p>🕒 Nadgodziny dzienne: ${totalDzien.toFixed(2)} godz. – ${wynDzien.toFixed(2)} zł</p>
+        <p>🌙 Nadgodziny nocne: ${totalNoc.toFixed(2)} godz. – ${wynNoc.toFixed(2)} zł</p>
+        <p>🎉 Nadgodziny w niedziele i święta: ${totalSwieta.toFixed(2)} godz. – ${wynSwieta.toFixed(2)} zł</p>
+        <p><strong>💰 Razem: ${razem.toFixed(2)} zł</strong></p>
+      `;
+
+      wynikiGlobalne = {
+        wynagrodzenie,
+        stawka: stawka.toFixed(2),
+        totalDzien: totalDzien.toFixed(2),
+        totalNoc: totalNoc.toFixed(2),
+        totalSwieta: totalSwieta.toFixed(2),
+        wynDzien: wynDzien.toFixed(2),
+        wynNoc: wynNoc.toFixed(2),
+        wynSwieta: wynSwieta.toFixed(2),
+        razem: razem.toFixed(2),
+        szczegoly
+      };
+
+      document.getElementById("exportBtn").style.display = "inline-block";
+    }
+
+    function exportExcel() {
+      if (!wynikiGlobalne) {
+        alert("Najpierw oblicz wyniki.");
+        return;
+      }
+
+      const data = [
+        ["Miesięczne wynagrodzenie (PLN)", wynikiGlobalne.wynagrodzenie],
+        ["Stawka godzinowa (PLN)", wynikiGlobalne.stawka],
+        [],
+        ["Suma nadgodzin dziennych (godz.)", wynikiGlobalne.totalDzien],
+        ["Suma nadgodzin nocnych (godz.)", wynikiGlobalne.totalNoc],
+        ["Suma nadgodzin w niedziele i święta (godz.)", wynikiGlobalne.totalSwieta],
+        ["Wynagrodzenie za nadgodziny dzienne (PLN)", wynikiGlobalne.wynDzien],
+        ["Wynagrodzenie za nadgodziny nocne (PLN)", wynikiGlobalne.wynNoc],
+        ["Wynagrodzenie za nadgodziny w niedziele i święta (PLN)", wynikiGlobalne.wynSwieta],
+        ["Łączne wynagrodzenie za nadgodziny (PLN)", wynikiGlobalne.razem],
+        [],
+        ["Szczegóły dziennej pracy:"],
+        ["Data rozpoczęcia", "Data zakończenia", "Nadgodziny dzienne (godz.)", "Nadgodziny nocne (godz.)", "Nadgodziny niedziele/święta (godz.)"]
+      ];
+
+      wynikiGlobalne.szczegoly.forEach(dzien => {
+        data.push([dzien.start, dzien.end, dzien.dzienne, dzien.nocne, dzien.swieta]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Nadgodziny");
+
+      XLSX.writeFile(wb, "wyniki_nadgodziny.xlsx");
+    }
+
+    addEntry();
+  </script>
+</body>
+</html>
